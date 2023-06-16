@@ -1,0 +1,25 @@
+#pragma kernel CSMain
+#pragma kernel CSMain2
+
+Texture3D<int> WindBufferInputX;
+Texture3D<int> WindBufferInputY;
+Texture3D<int> WindBufferInputZ;
+RWTexture3D<int> WindBufferOutputX;
+RWTexture3D<int> WindBufferOutputY;
+RWTexture3D<int> WindBufferOutputZ;
+
+[numthreads(4,4,4)]
+void CSMain (int3 dispatchThreadID : SV_DispatchThreadID)
+{
+    WindBufferOutputX[dispatchThreadID.xyz] = WindBufferInputX[dispatchThreadID.xyz];
+    WindBufferOutputY[dispatchThreadID.xyz] = WindBufferInputY[dispatchThreadID.xyz];
+    WindBufferOutputZ[dispatchThreadID.xyz] = WindBufferInputZ[dispatchThreadID.xyz];
+}
+
+[numthreads(4,4,4)]
+void CSMain2(int3 dispatchThreadID : SV_DispatchThreadID)
+{
+    WindBufferOutputX[dispatchThreadID.xyz] = 0;
+    WindBufferOutputY[dispatchThreadID.xyz] = 0;
+    WindBufferOutputZ[dispatchThreadID.xyz] = 0;
+}

@@ -1,0 +1,25 @@
+#include "WindSimulationInclude.hlsl"
+#pragma kernel CSMain
+
+int VolumeSizeX;
+int VolumeSizeY;
+Texture3D<int> WindBufferInputX;
+Texture3D<int> WindBufferInputY;
+Texture3D<int> WindBufferInputZ;
+RWTexture3D<float3> WindBufferOutput;
+RWStructuredBuffer<float3> WindDataForCPUBuffer;
+
+#define N 4
+
+[numthreads(N,N,N)]
+void CSMain (int3 dispatchThreadID : SV_DispatchThreadID)
+{
+    float x = PackIntToFloat(WindBufferInputX[dispatchThreadID.xyz].r);
+    float y = PackIntToFloat(WindBufferInputY[dispatchThreadID.xyz].r);
+    float z = PackIntToFloat(WindBufferInputZ[dispatchThreadID.xyz].r);
+    int index = dispatchThreadID.x + dispatchThreadID.y * VolumeSizeX + dispatchThreadID.z * VolumeSizeX * VolumeSizeY;
+    float3 color = float3(x,y,z);
+    color = clamp(color, -14, 14); // 控制这个风力的速度，毕竟14m/s的风速已经是飓风级别的风速了
+    WindBufferOutput[dispatchThreadID.xyz] = color;
+    WindDataForCPUBuffer[index] = color;
+}

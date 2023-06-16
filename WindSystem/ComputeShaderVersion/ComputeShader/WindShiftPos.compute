@@ -1,0 +1,28 @@
+#include "WindSimulationInclude.hlsl"
+#pragma kernel CSMain
+
+// uniform int4 ShiftPos;
+uniform int3 VolumeSizeMinusOne;
+uniform int ShiftPosX;
+uniform int ShiftPosY;
+uniform int ShiftPosZ;
+
+Texture3D<int> WindBufferInputX;
+Texture3D<int> WindBufferInputY;
+Texture3D<int> WindBufferInputZ;
+RWTexture3D<int> WindBufferOutputX;
+RWTexture3D<int> WindBufferOutputY;
+RWTexture3D<int> WindBufferOutputZ;
+
+#define N 4
+
+[numthreads(N,N,N)]
+void CSMain (int3 dispatchThreadID : SV_DispatchThreadID)
+{
+    int3 shiftPos = int3(ShiftPosX, ShiftPosY, ShiftPosZ) + dispatchThreadID;
+    // int3 shiftPos = int3(ShiftPos.x, ShiftPos.y, ShiftPos.z) + dispatchThreadID;
+    int3 finalPos = max(min(shiftPos, VolumeSizeMinusOne), 0);
+    WindBufferOutputX[dispatchThreadID] = WindBufferInputX[finalPos];
+    WindBufferOutputY[dispatchThreadID] = WindBufferInputY[finalPos];
+    WindBufferOutputZ[dispatchThreadID] = WindBufferInputZ[finalPos];
+}

@@ -1,0 +1,67 @@
+﻿#include "WindSimulationInclude.hlsl"
+#pragma kernel WindVolumeRenderMotorCS
+
+StructuredBuffer<MotorDirectional> DirectionalMotorBuffer;
+StructuredBuffer<MotorOmni> OmniMotorBuffer;
+StructuredBuffer<MotorVortex> VortexMotorBuffer;
+StructuredBuffer<MotorMoving> MovingMotorBuffer;
+uniform float DirectionalMotorBufferCount;
+uniform float OmniMotorBufferCount;
+uniform float VortexMotorBufferCount;
+uniform float MovingMotorBufferCount;
+// 风力坐标计算的采样偏移
+uniform float3 VolumePosOffset;
+
+// RWStructuredBuffer<WindMotorData> WindMotorDataBuffer;
+
+Texture3D<int> WindBufferInputX;
+Texture3D<int> WindBufferInputY;
+Texture3D<int> WindBufferInputZ;
+RWTexture3D<int> WindBufferOutputX;
+RWTexture3D<int> WindBufferOutputY;
+RWTexture3D<int> WindBufferOutputZ;
+
+// 根据传入的风力发动机的buffer，覆盖对应的扩散风的信息
+[numthreads(8,8,1)]
+void WindVolumeRenderMotorCS (uint3 id : SV_DispatchThreadID)
+{
+    float3 cellPosWS = id.xyz + VolumePosOffset;
+    
+    float3 velocityWS = 0;
+    velocityWS.x = PackIntToFloat(WindBufferInputX[id.xyz].r);
+    velocityWS.y = PackIntToFloat(WindBufferInputY[id.xyz].r);
+    velocityWS.z = PackIntToFloat(WindBufferInputZ[id.xyz].r);
+
+    if(DirectionalMotorBufferCount > 0)
+    {
+        for(int i = 0; i < DirectionalMotorBufferCount; i++)
+        {
+            ApplyMotorDirectional(cellPosWS, DirectionalMotorBuffer[i], velocityWS);
+        }
+    }
+    if(OmniMotorBufferCount > 0)
+    {
+        for(int i = 0; i < OmniMotorBufferCount; i++)
+        {
+            ApplyMotorOmni(cellPosWS, OmniMotorBuffer[i], velocityWS);
+        }
+    }
+    if(VortexMotorBufferCount > 0)
+    {
+        for(int i = 0; i < VortexMotorBufferCount; i++)
+        {
+            ApplyMotorVortex(cellPosWS, VortexMotorBuffer[i], velocityWS);
+        }
+    }
+    if(MovingMotorBufferCount > 0)
+    {
+        for(int i = 0; i < MovingMotorBufferCount; i++)
+        {
+            ApplyMotorMoving(cellPosWS, MovingMotorBuffer[i], velocityWS);
+        }
+    }
+
+    WindBufferOutputX[id.xyz] = PackFloatToInt(velocityWS.x);
+    WindBufferOutputY[id.xyz] = PackFloatToInt(velocityWS.y);
+    WindBufferOutputZ[id.xyz] = PackFloatToInt(velocityWS.z);
+}

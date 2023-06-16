@@ -1,0 +1,172 @@
+#include "WindSimulationInclude.hlsl"
+#pragma kernel CSMain
+#pragma kernel CSMain2
+// 传入3个不同方向的风力纹理
+Texture3D<int> WindBufferInputX;
+Texture3D<int> WindBufferInputY;
+Texture3D<int> WindBufferInputZ;
+// 这个纹理代表这次要处理的轴向
+Texture3D<int> WindBufferTarget;
+RWTexture3D<int> WindBufferOutput;
+
+uniform int3 VolumeSizeMinusOne;
+uniform float AdvectionForce;
+
+#define N 4
+// 平流模拟1,正向平流
+[numthreads(N,N,N)]
+void CSMain (int3 dispatchThreadID : SV_DispatchThreadID)
+{
+    // 抽取目标轴向纹理数据
+    float targetData = PackIntToFloat(WindBufferTarget[dispatchThreadID.xyz].r);
+    // 抽取三个方向的风力数据
+    int3 windDataInt = int3(WindBufferInputX[dispatchThreadID.xyz].r, WindBufferInputY[dispatchThreadID.xyz].r,
+                            WindBufferInputZ[dispatchThreadID.xyz].r);
+    float3 advectionData = windDataInt * AdvectionForce * FXDPT_SIZE_R;
+    int3 moveCell = (int3)(floor(advectionData + dispatchThreadID));
+    // 指定当前格子和周围格子的偏移比例
+    float3 offsetNeb = frac(advectionData);
+    float3 offsetOri = 1.0 - offsetNeb;
+
+    // 根据风向偏移到指定的格子后，开始计算各个方向的平流
+    if(all(moveCell >= 0 && moveCell <= VolumeSizeMinusOne))
+    {
+        float adData = offsetOri.x * offsetOri.y * offsetOri.z * targetData;
+        InterlockedAdd(WindBufferOutput[moveCell.xyz], PackFloatToInt(adData));
+    }
+    // 目标中心x+1
+    int3 tempCell = moveCell + int3(1, 0, 0);
+    if(all(tempCell >= 0 && tempCell <= VolumeSizeMinusOne))
+    {
+        float adData = offsetNeb.x * offsetOri.y * offsetOri.z * targetData;
+        InterlockedAdd(WindBufferOutput[tempCell.xyz], PackFloatToInt(adData));
+    }
+    // 目标中心z+1(但战神中的yz是反转的,因此整理完之后要将其归位置,这里实际上就是y+1)
+    // 不偏移的部分取advectionData分量,否则取advectionDataFrac分量
+    tempCell = moveCell + int3(0, 1, 0);
+    if(all(tempCell >= 0 && tempCell <= VolumeSizeMinusOne))
+    {
+        float adData = offsetOri.x * offsetNeb.y * offsetOri.z * targetData;
+        InterlockedAdd(WindBufferOutput[tempCell.xyz], PackFloatToInt(adData));
+    }
+    
+    tempCell = moveCell + int3(1, 1, 0);
+    if(all(tempCell >= 0 && tempCell <= VolumeSizeMinusOne))
+    {
+        float adData = offsetNeb.x * offsetNeb.y * offsetOri.z * targetData;
+        InterlockedAdd(WindBufferOutput[tempCell.xyz], PackFloatToInt(adData));
+    }
+
+    tempCell = moveCell + int3(0, 0, 1);
+    if(all(tempCell >= 0 && tempCell <= VolumeSizeMinusOne))
+    {
+        float adData = offsetOri.x * offsetOri.y * offsetNeb.z * targetData;
+        InterlockedAdd(WindBufferOutput[tempCell.xyz], PackFloatToInt(adData));
+    }
+
+    tempCell = moveCell + int3(1, 0, 1);
+    if(all(tempCell >= 0 && tempCell <= VolumeSizeMinusOne))
+    {
+        float adData = offsetNeb.x * offsetOri.y * offsetNeb.z * targetData;
+        InterlockedAdd(WindBufferOutput[tempCell.xyz], PackFloatToInt(adData));
+    }
+
+    tempCell = moveCell + int3(0, 1, 1);
+    if(all(tempCell >= 0 && tempCell <= VolumeSizeMinusOne))
+    {
+        float adData = offsetOri.x * offsetNeb.y * offsetNeb.z * targetData;
+        InterlockedAdd(WindBufferOutput[tempCell.xyz], PackFloatToInt(adData));
+    }
+
+    tempCell = moveCell + int3(1, 1, 1);
+    if(all(tempCell >= 0 && tempCell <= VolumeSizeMinusOne))
+    {
+        float adData = offsetNeb.x * offsetNeb.y * offsetNeb.z * targetData;
+        InterlockedAdd(WindBufferOutput[tempCell.xyz], PackFloatToInt(adData));
+    }
+}
+
+// 平流模拟2,反向平流
+[numthreads(N,N,N)]
+void CSMain2 (int3 dispatchThreadID : SV_DispatchThreadID)
+{
+    // 抽取三个方向的风力数据
+    float3 windDataInt = PackIntToFloat(int3(WindBufferInputX[dispatchThreadID.xyz].r, WindBufferInputY[dispatchThreadID.xyz].r,
+                            WindBufferInputZ[dispatchThreadID.xyz].r));
+    float3 advectionData = windDataInt * -AdvectionForce;
+    int3 moveCell = (int3)(floor(advectionData + dispatchThreadID));
+    // 指定当前格子和周围格子的偏移比例
+    float3 offsetNeb = frac(advectionData);
+    float3 offsetOri = 1.0 - offsetNeb;
+    // 抽取目标轴向纹理数据
+    float targetData = PackIntToFloat(WindBufferTarget[moveCell.xyz].r);
+    targetData *= offsetOri.x * offsetOri.y * offsetOri.z;
+
+    int3 tempPos1 = moveCell.xyz + int3(1, 0, 0);
+    float targetDataX1 = PackIntToFloat(WindBufferTarget[tempPos1.xyz].r);
+    targetDataX1 *= offsetNeb.x * offsetOri.y * offsetOri.z;
+
+    int3 tempPos2 = moveCell.xyz + int3(0, 1, 0);
+    float targetDataY1 = PackIntToFloat(WindBufferTarget[tempPos2.xyz].r);
+    targetDataY1 *= offsetOri.x * offsetNeb.y * offsetOri.z;
+
+    int3 tempPos3 = moveCell.xyz + int3(1, 1, 0);
+    float targetDataX1Y1 = PackIntToFloat(WindBufferTarget[tempPos3.xyz].r);
+    targetDataX1Y1 *= offsetNeb.x * offsetNeb.y * offsetOri.z;
+
+    int3 tempPos4 = moveCell.xyz + int3(0, 0, 1);
+    float targetDataZ1 = PackIntToFloat(WindBufferTarget[tempPos4.xyz].r);
+    targetDataZ1 *= offsetOri.x * offsetOri.y * offsetNeb.z;
+
+    int3 tempPos5 = moveCell.xyz + int3(1, 0, 1);
+    float targetDataX1Z1 = PackIntToFloat(WindBufferTarget[tempPos5.xyz].r);
+    targetDataX1Z1 *= offsetNeb.x * offsetOri.y * offsetNeb.z;
+
+    int3 tempPos6 = moveCell.xyz + int3(0, 1, 1);
+    float targetDataY1Z1 = PackIntToFloat(WindBufferTarget[tempPos6.xyz].r);
+    targetDataY1Z1 *= offsetOri.x * offsetNeb.y * offsetNeb.z;
+
+    int3 tempPos7 = moveCell.xyz + int3(1, 1, 1);
+    float targetDataX1Y1Z1 = PackIntToFloat(WindBufferTarget[tempPos7.xyz].r);
+    targetDataX1Y1Z1 *= offsetNeb.x * offsetNeb.y * offsetNeb.z;
+
+    if(all(moveCell >= 0 && moveCell <= VolumeSizeMinusOne))
+    {
+        InterlockedAdd(WindBufferOutput[moveCell.xyz], -PackFloatToInt(targetData));
+    }
+    if(all(tempPos1 >= 0 && tempPos1 <= VolumeSizeMinusOne))
+    {
+        InterlockedAdd(WindBufferOutput[tempPos1.xyz], -PackFloatToInt(targetDataX1));
+    }
+    if(all(tempPos2 >= 0 && tempPos2 <= VolumeSizeMinusOne))
+    {
+        InterlockedAdd(WindBufferOutput[tempPos2.xyz], -PackFloatToInt(targetDataY1));
+    }
+    if(all(tempPos3 >= 0 && tempPos3 <= VolumeSizeMinusOne))
+    {
+        InterlockedAdd(WindBufferOutput[tempPos3.xyz], -PackFloatToInt(targetDataX1Y1));
+    }
+    if(all(tempPos4 >= 0 && tempPos4 <= VolumeSizeMinusOne))
+    {
+        InterlockedAdd(WindBufferOutput[tempPos4.xyz], -PackFloatToInt(targetDataZ1));
+    }
+    if(all(tempPos5 >= 0 && tempPos5 <= VolumeSizeMinusOne))
+    {
+        InterlockedAdd(WindBufferOutput[tempPos5.xyz], -PackFloatToInt(targetDataX1Z1));
+    }
+    if(all(tempPos6 >= 0 && tempPos6 <= VolumeSizeMinusOne))
+    {
+        InterlockedAdd(WindBufferOutput[tempPos6.xyz], -PackFloatToInt(targetDataY1Z1));
+    }
+    if(all(tempPos7 >= 0 && tempPos7 <= VolumeSizeMinusOne))
+    {
+        InterlockedAdd(WindBufferOutput[tempPos7.xyz], -PackFloatToInt(targetDataX1Y1Z1));
+    }
+    if(all(dispatchThreadID <= VolumeSizeMinusOne))
+    {
+        float cellData = targetData + targetDataX1 + targetDataY1 + targetDataX1Y1
+                        + targetDataZ1 + targetDataX1Z1 + targetDataY1Z1
+                        + targetDataX1Y1Z1;
+        InterlockedAdd(WindBufferOutput[dispatchThreadID.xyz], PackFloatToInt(cellData));
+    }
+}

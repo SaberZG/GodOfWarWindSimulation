@@ -1,0 +1,96 @@
+#include "WindSimulationInclude.hlsl"
+#pragma kernel CSMain
+
+Texture3D<int> WindBufferInput;
+RWTexture3D<int> WindBufferOutput;
+
+uniform int3 VolumeSizeMinusOne;
+uniform float DiffusionForce;
+
+#define N 4
+groupshared float m_Cache[N*N*N];
+
+[numthreads(N,N,N)]
+void CSMain (int3 dispatchThreadID : SV_DispatchThreadID, int3 groupThreadID : SV_GroupThreadID)
+{
+    // 采样int格式的Volume纹理,并转换格式
+    float windInput = PackIntToFloat(WindBufferInput[dispatchThreadID.xyz].r);
+    // 计算节点Groupid
+    int cacheIndex = groupThreadID.x + groupThreadID.y * 4 + groupThreadID.z * 16;
+    m_Cache[cacheIndex] = windInput;
+    GroupMemoryBarrierWithGroupSync();
+    // 判断各个方向上的越界问题和数据cache获取逻辑
+    float xr = 0;
+    float xl = 0;
+    float yr = 0;
+    float yl = 0;
+    float zr = 0;
+    float zl = 0;
+    // X轴
+    if(groupThreadID.x < N - 1)
+    {
+        int3 gtID = groupThreadID + int3(1, 0, 0);
+        xr = m_Cache[gtID.x + gtID.y * 4 + gtID.z * 16];
+    }
+    else
+    {
+        int tIDx = min(dispatchThreadID.x + 1, VolumeSizeMinusOne.x);
+        xr = PackIntToFloat(WindBufferInput[int3(tIDx, dispatchThreadID.y, dispatchThreadID.z)].r);
+    }
+    if(groupThreadID.x != 0)
+    {
+        int3 gtID = groupThreadID + int3(-1, 0, 0);
+        xl = m_Cache[gtID.x + gtID.y * 4 + gtID.z * 16];
+    }
+    else
+    {
+        int tIDx = max(dispatchThreadID.x - 1, 0);
+        xl = PackIntToFloat(WindBufferInput[int3(tIDx, dispatchThreadID.y, dispatchThreadID.z)].r);
+    }
+    // Y轴
+    if(groupThreadID.y < N - 1)
+    {
+        int3 gtID = groupThreadID + int3(0, 1, 0);
+        yr = m_Cache[gtID.x + gtID.y * 4 + gtID.z * 16];
+    }
+    else
+    {
+        int tIDy = min(dispatchThreadID.y + 1, VolumeSizeMinusOne.y);
+        yr = PackIntToFloat(WindBufferInput[int3(dispatchThreadID.x, tIDy, dispatchThreadID.z)].r);
+    }
+    if(groupThreadID.y != 0)
+    {
+        int3 gtID = groupThreadID + int3(0, -1, 0);
+        yl = m_Cache[gtID.x + gtID.y * 4 + gtID.z * 16];
+    }
+    else
+    {
+        int tIDy = max(dispatchThreadID.y - 1, 0);
+        yl = PackIntToFloat(WindBufferInput[int3(dispatchThreadID.x, tIDy, dispatchThreadID.z)].r);
+    }
+    // Z轴
+    if(groupThreadID.z < N - 1)
+    {
+        int3 gtID = groupThreadID + int3(0, 0, 1);
+        zr = m_Cache[gtID.x + gtID.y * 4 + gtID.z * 16];
+    }
+    else
+    {
+        int tIDz = min(dispatchThreadID.z + 1, VolumeSizeMinusOne.z);
+        zr = PackIntToFloat(WindBufferInput[int3(dispatchThreadID.x, dispatchThreadID.y, tIDz)].r);
+    }
+    if(groupThreadID.z != 0)
+    {
+        int3 gtID = groupThreadID + int3(0, 0, -1);
+        zl = m_Cache[gtID.x + gtID.y * 4 + gtID.z * 16];
+    }
+    else
+    {
+        int tIDz = max(dispatchThreadID.z - 1, 0);
+        zl = PackIntToFloat(WindBufferInput[int3(dispatchThreadID.x, dispatchThreadID.y, tIDz)].r);
+    }
+    // 最终合并diffusion模拟
+    float finalData = xr + xl + yr + yl + zr + zl - windInput * 6;
+    finalData = finalData * DiffusionForce + windInput;
+    WindBufferOutput[dispatchThreadID.xyz] = PackFloatToInt(finalData);
+}
